@@ -36,12 +36,19 @@ jobs:
 
       - name: Install Git on Private Server
         run: |
-          # Se ejecuta de forma independiente para asegurar que dnf eche a andar con sudo sin romper el flujo posterior
           ssh private-server "sudo dnf update -y && sudo dnf install git -y"
 
       - name: Deploy on server
         run: |
           ssh private-server "
+            # --- LIMPIEZA DE LA MÁQUINA ANTIGUA CON DOCKER COMPOSE ---
+            # Si existe la carpeta de la app antigua, entramos y destruimos todo con sus volúmenes
+            if [ -d \"/home/ec2-user/app\" ]; then
+              echo \"Detectada aplicación antigua. Ejecutando docker-compose down -v...\"
+              cd /home/ec2-user/app && docker-compose down -v || true
+            fi &&
+
+            # --- DESPLIEGUE DEL NUEVO FRONTEND ---
             mkdir -p /home/ec2-user/app-frontend &&
             cd /home/ec2-user/app-frontend &&
             
@@ -61,9 +68,17 @@ jobs:
             echo 'BACKEND_URL=${{ secrets.BACKEND_URL }}' >> .env &&
             echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env &&
             
-            # Ciclo de actualización del contenedor Docker
-            docker stop front-app || true &&
+            # Asegurar que no quede ningún contenedor Docker suelto usando el mismo puerto
+            EXISTING_CONTAINER=\$(docker ps -q --filter publish=${{ secrets.PORT }})
+            if [ ! -z \"\$EXISTING_CONTAINER\" ]; then
+              echo \"Deteniendo contenedor residual en el puerto ${{ secrets.PORT }}...\"
+              docker stop \$EXISTING_CONTAINER
+              docker rm \$EXISTING_CONTAINER
+            fi &&
+            
             docker rm front-app || true &&
+            
+            # Construir y correr el nuevo contenedor del Frontend
             docker build -t front-eval-image:latest . &&
             docker run -d \
               --name front-app \
