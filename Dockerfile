@@ -7,8 +7,8 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-# Instalar dependencias del sistema necesarias si las hubiera
-RUN apt-get update && apt-get install -y --no-install-recommends gcc- \
+# Instalar dependencias del sistema necesarias (Corregido sin el guion suelto)
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
     && rm -rf /var/lib/apt/lists/*
 
 # Copiar e instalar requerimientos
@@ -21,6 +21,6 @@ COPY . .
 # Exponer el puerto configurado (Flask usa el 5000 por defecto)
 EXPOSE 5000
 
-# Ejecutar usando Gunicorn en producción (más seguro que app.run)
+# Ejecutar usando Gunicorn en producción
 RUN pip install gunicorn
 CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
