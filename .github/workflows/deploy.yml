@@ -3,7 +3,7 @@ name: Deploy Frontend
 on:
   push:
     branches:
-      - main  # Cambia a 'deploy' o la rama que uses si es diferente
+      - main  # Cambia a 'deploy' si esa es tu rama de producción
 
 jobs:
   deploy:
@@ -39,6 +39,7 @@ jobs:
           ssh private-server "
             mkdir -p /home/ec2-user/app-frontend &&
             cd /home/ec2-user/app-frontend &&
+            
             if [ ! -d .git ]; then
               git init &&
               git remote add origin https://github.com/VicenteParada/Front_Eval2.git &&
@@ -48,10 +49,19 @@ jobs:
             else
               git pull origin main
             fi &&
+            
+            # Si Git clonó el proyecto dentro de una subcarpeta con el nombre del repo, entramos en ella
+            if [ -d \"Front_Eval2\" ]; then 
+              cd Front_Eval2
+            fi &&
+            
+            # Escribir el archivo .env con las variables de producción
             echo 'PORT=${{ secrets.PORT }}' > .env &&
             echo 'DEBUG=False' >> .env &&
             echo 'BACKEND_URL=${{ secrets.BACKEND_URL }}' >> .env &&
             echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env &&
+            
+            # Ciclo de actualización del contenedor Docker
             docker stop front-app || true &&
             docker rm front-app || true &&
             docker build -t front-eval-image:latest . &&
