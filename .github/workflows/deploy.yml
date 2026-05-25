@@ -1,53 +1,64 @@
-name: Deploy to Amazon Linux 2023
+name: Deploy Frontend
 
 on:
   push:
     branches:
-      - main  # O la rama que uses por defecto
+      - main  # Cambia a 'deploy' o la rama que uses si es diferente
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout del código
-      uses: actions/checkout@v4
+      - name: Configure SSH client with Bastion
+        env:
+          BASTION_KEY: ${{ secrets.BASTION_KEY }}
+          SERVER_KEY: ${{ secrets.SERVER_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$BASTION_KEY" > ~/.ssh/bastion.pem
+          echo "$SERVER_KEY" > ~/.ssh/server.pem
+          chmod 600 ~/.ssh/bastion.pem ~/.ssh/server.pem
+          cat <<EOF > ~/.ssh/config
+          Host bastion-host
+            HostName ${{ secrets.BASTION_HOST }}
+            User ${{ secrets.BASTION_USER }}
+            IdentityFile ~/.ssh/bastion.pem
+            StrictHostKeyChecking no
 
-    - name: Desplegar en EC2 vía SSH
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.EC2_HOST }}
-        username: ec2-user
-        key: ${{ secrets.EC2_SSH_KEY }}
-        script: |
-          # Crear la carpeta del proyecto si no existe
-          mkdir -p ~/front_eval
-          cd ~/front_eval
+          Host private-server
+            HostName ${{ secrets.SERVER_HOST }}
+            User ${{ secrets.SERVER_USER }}
+            IdentityFile ~/.ssh/server.pem
+            ProxyJump bastion-host
+            StrictHostKeyChecking no
+          EOF
 
-          # Inicializar repositorio si es la primera vez, o clonar/actualizar
-          if [ ! -d ".git" ]; then
-            git clone https://github.com/${{ github.repository }}.git .
-          else
-            git pull origin main
-          fi
-
-          # Crear o actualizar el archivo .env en producción
-          echo "PORT=5000" > .env
-          echo "DEBUG=False" >> .env
-          echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
-          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
-
-          # Detener el contenedor anterior si existe
-          docker stop front-app || true
-          docker rm front-app || true
-
-          # Construir la nueva imagen basada en el Dockerfile de Python
-          docker build -t front-eval-image .
-
-          # Correr el contenedor mapeando el puerto 5000
-          docker run -d \
-            --name front-app \
-            -p 5000:5000 \
-            --env-file .env \
-            --restart always \
-            front-eval-image
+      - name: Deploy on server
+        run: |
+          ssh private-server "
+            mkdir -p /home/ec2-user/app-frontend &&
+            cd /home/ec2-user/app-frontend &&
+            if [ ! -d .git ]; then
+              git init &&
+              git remote add origin https://github.com/VicenteParada/Front_Eval2.git &&
+              git fetch origin main &&
+              git checkout -f main &&
+              git branch --set-upstream-to=origin/main main
+            else
+              git pull origin main
+            fi &&
+            echo 'PORT=${{ secrets.PORT }}' > .env &&
+            echo 'DEBUG=False' >> .env &&
+            echo 'BACKEND_URL=${{ secrets.BACKEND_URL }}' >> .env &&
+            echo 'SECRET_KEY=${{ secrets.SECRET_KEY }}' >> .env &&
+            docker stop front-app || true &&
+            docker rm front-app || true &&
+            docker build -t front-eval-image:latest . &&
+            docker run -d \
+              --name front-app \
+              -p ${{ secrets.PORT }}:5000 \
+              --env-file .env \
+              --restart always \
+              front-eval-image:latest
+          "
