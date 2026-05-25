@@ -1,0 +1,53 @@
+name: Deploy to Amazon Linux 2023
+
+on:
+  push:
+    branches:
+      - main  # O la rama que uses por defecto
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout del código
+      uses: actions/checkout@v4
+
+    - name: Desplegar en EC2 vía SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ec2-user
+        key: ${{ secrets.EC2_SSH_KEY }}
+        script: |
+          # Crear la carpeta del proyecto si no existe
+          mkdir -p ~/front_eval
+          cd ~/front_eval
+
+          # Inicializar repositorio si es la primera vez, o clonar/actualizar
+          if [ ! -d ".git" ]; then
+            git clone https://github.com/${{ github.repository }}.git .
+          else
+            git pull origin main
+          fi
+
+          # Crear o actualizar el archivo .env en producción
+          echo "PORT=5000" > .env
+          echo "DEBUG=False" >> .env
+          echo "BACKEND_URL=${{ secrets.BACKEND_URL }}" >> .env
+          echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
+
+          # Detener el contenedor anterior si existe
+          docker stop front-app || true
+          docker rm front-app || true
+
+          # Construir la nueva imagen basada en el Dockerfile de Python
+          docker build -t front-eval-image .
+
+          # Correr el contenedor mapeando el puerto 5000
+          docker run -d \
+            --name front-app \
+            -p 5000:5000 \
+            --env-file .env \
+            --restart always \
+            front-eval-image
