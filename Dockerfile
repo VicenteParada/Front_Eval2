@@ -1,14 +1,26 @@
-FROM node:18-alpine AS build-stage
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci && npm cache clean --force
-COPY . .
-RUN npm run build
+# Usa una imagen liviana de Python
+FROM python:3.11-slim
 
-FROM nginx:stable-alpine AS production-stage
-RUN touch /var/run/nginx.pid && \
-    chown -R nginx:nginx /var/run/nginx.pid /var/cache/nginx /var/log/nginx /etc/nginx/conf.d
-COPY --from=build-stage --chown=nginx:nginx /app/dist /usr/share/nginx/html
-USER nginx
-EXPOSE 8080
-CMD ["nginx", "-g", "daemon off;"]
+# Evita que Python escriba archivos .pyc y fuerza el buffering de logs
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Instalar dependencias del sistema necesarias si las hubiera
+RUN apt-get update && apt-get install -y --no-install-recommends gcc- \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copiar e instalar requerimientos
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copiar el resto del código (incluyendo la carpeta templates/)
+COPY . .
+
+# Exponer el puerto configurado (Flask usa el 5000 por defecto)
+EXPOSE 5000
+
+# Ejecutar usando Gunicorn en producción (más seguro que app.run)
+RUN pip install gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
