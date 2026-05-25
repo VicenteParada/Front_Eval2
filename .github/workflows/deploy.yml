@@ -34,6 +34,11 @@ jobs:
             StrictHostKeyChecking no
           EOF
 
+      - name: Install Git on Private Server
+        run: |
+          # Se ejecuta de forma independiente para asegurar que dnf eche a andar con sudo sin romper el flujo posterior
+          ssh private-server "sudo dnf update -y && sudo dnf install git -y"
+
       - name: Deploy on server
         run: |
           ssh private-server "
@@ -48,11 +53,6 @@ jobs:
               git branch --set-upstream-to=origin/main main
             else
               git pull origin main
-            fi &&
-            
-            # Si Git clonó el proyecto dentro de una subcarpeta con el nombre del repo, entramos en ella
-            if [ -d \"Front_Eval2\" ]; then 
-              cd Front_Eval2
             fi &&
             
             # Escribir el archivo .env con las variables de producción
